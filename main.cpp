@@ -186,13 +186,8 @@ int main(int argc,char* argv[]){
                     try{
                         // TODO: Async_resolve
                         boost::asio::ip::tcp::resolver::iterator iterator=res.resolve(Q);
-                        boost::system::error_code error;
-                        // TODO: Async_connect
-                        socket_to_serv.connect(iterator->endpoint(), error);
+                        socket_to_serv.async_connect(iterator->endpoint(),[](const boost::system::error_code& error){if (error) BOOST_LOG_TRIVIAL(error)<<"Connected"<<error.message();});
 
-                        //res.async_resolve(addr_serv,port_serv_,[](const boost::system::error_code& error,boost::asio::ip::tcp::resolver::results_type results){});//async_resolve!!!!!
-                        //if(error) BOOST_LOG_TRIVIAL(error)<<error.message();
-                        //socket_to_serv.async_connect(iterator->endpoint(),[](const boost::system::error_code& error){BOOST_LOG_TRIVIAL(error)<<"something"<<error.message();});
                     }
                     catch(const boost::system::system_error& e){
                         BOOST_LOG_TRIVIAL(error) << "Connect:" << e.what(); con_flag=0x01;
