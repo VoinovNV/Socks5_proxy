@@ -1,3 +1,9 @@
+
+/*
+
+Выдает ошибки вида: ld.lld: error: undefined symbol: uv_default_loop
+
+*/
 #include <iostream>
 #include <client_uv.hpp>
 int main()
