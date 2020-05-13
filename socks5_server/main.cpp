@@ -27,12 +27,7 @@
 #include <thread>
 #include <type_traits>
 #include <boost/log/trivial.hpp>
-//#include <boost/exception/diagnostic_information.hpp>
-//#include <boost/log/expressions.hpp>
-//#include <boost/log/support/date_time.hpp>
-//#include <boost/log/utility/setup/common_attributes.hpp>
-//#include <boost/log/utility/setup/console.hpp>
-
+#include <boost/regex.hpp>
 template<typename T>
 std::optional<T> from_chars(std::string_view sv) noexcept
 {
@@ -74,8 +69,8 @@ auto at_scope_exit(F&& f)
 
 int main(int argc,char* argv[]){
     try{
-        if(argc!=3){
-            BOOST_LOG_TRIVIAL(fatal) << "Usage: " << argv[0] << " <listen-port> <buf-size>\n";
+        if(argc!=4){
+            BOOST_LOG_TRIVIAL(fatal) << "Usage: " << argv[0] << " <listen-port> <buf-size> <thread-num>\n";
             return 1;
         }
         auto port = from_chars<std::uint16_t>(argv[1]);
@@ -83,7 +78,9 @@ int main(int argc,char* argv[]){
             std::cerr << "Port must be in [1;65535]\n";
             return 1;
         }
-        long long int buf_size= std::atoll(argv[1]);
+        long long int buf_size= std::atoll(argv[2]);
+        long long int thr_num= std::atoll(argv[3]);
+        BOOST_LOG_TRIVIAL(info)<<"THREADS:" << std::thread::hardware_concurrency();
         boost::asio::io_context ctx;
         boost::asio::signal_set stop_signals{ctx,SIGINT,SIGTERM};
         stop_signals.async_wait([&](boost::system::error_code ec,int /*signal*/){
@@ -119,15 +116,9 @@ int main(int argc,char* argv[]){
                     std::size_t n;
                     in_buf.resize(257);
                     try{
-
-                        n = co_await stream.async_read_some(
-                            boost::asio::buffer(in_buf),
-                            boost::asio::use_awaitable);
-                        /* TODO:
-                         * n = co_await async_read_until(stream,
-                            boost::asio::dynamic_string_buffer(in_buf,257),'\0',
-                            boost::asio::use_awaitable);
-                         */
+                        n = co_await async_read_until(stream,
+                            boost::asio::dynamic_string_buffer(in_buf),boost::regex("\x05.*\0"),
+                                boost::asio::use_awaitable);
 
                     }
                     catch(const boost::system::system_error& e){
@@ -136,8 +127,7 @@ int main(int argc,char* argv[]){
                             BOOST_LOG_TRIVIAL(error) << "Failed to read Handshake:" << e.what();
                         co_return;
                     }
-                    if(in_buf[0]!=0x05) {BOOST_LOG_TRIVIAL(error) <<"Is not SOCKS 5"; co_return;}
-                    if(!in_buf.find((char)0)) {BOOST_LOG_TRIVIAL(info) << "unsupported Handshake: 3"; co_return;}
+                    if(!in_buf.find('\5')) {BOOST_LOG_TRIVIAL(error) <<"Is not SOCKS 5"; co_return;}
                     std::string out_buf;
                     out_buf.push_back(0x05);
                     out_buf.push_back(0x00);
@@ -156,9 +146,9 @@ int main(int argc,char* argv[]){
                         n = co_await stream.async_read_some(boost::asio::buffer(in_buf), boost::asio::use_awaitable);
                         /* TODO:
                          * n = co_await async_read_until(stream,
-                            boost::asio::dynamic_string_buffer(in_buf,257),'\0',
+                            boost::asio::dynamic_string_buffer(in_buf),???,
                             boost::asio::use_awaitable);
-                         */
+                        */
                     }
                     catch(const boost::system::system_error& e){
                         if(e.code()!=boost::asio::error::operation_aborted&&
@@ -166,8 +156,6 @@ int main(int argc,char* argv[]){
                             BOOST_LOG_TRIVIAL(error) << "Failed to read request: " << e.what();
                         co_return;
                     }
-                    /*TODO:
-                     * Change ip adressing */
                     if(in_buf[0]!=0x05||in_buf[1]!=0x01||in_buf[2]!=0x00) {BOOST_LOG_TRIVIAL(error) << "Unsupported request: "; co_return;}
                     int a;
                     int b=0;
@@ -184,7 +172,7 @@ int main(int argc,char* argv[]){
                     boost::asio::ip::tcp::resolver res(ctx);
                     boost::asio::ip::tcp::resolver::query Q(addr_serv,port_serv_);
                     try{
-                        // TODO: Async_resolve
+
                         boost::asio::ip::tcp::resolver::iterator iterator=res.resolve(Q);
                         socket_to_serv.async_connect(iterator->endpoint(),[](const boost::system::error_code& error){if (error) BOOST_LOG_TRIVIAL(error)<<"Connected"<<error.message();});
 
@@ -192,9 +180,6 @@ int main(int argc,char* argv[]){
                     catch(const boost::system::system_error& e){
                         BOOST_LOG_TRIVIAL(error) << "Connect:" << e.what(); con_flag=0x01;
                     };
-                    //socket_to_serv.async_connect(iterator->endpoint(),[](const boost::system::error_code& error, boost::asio::ip::tcp::resolver::iterator i){BOOST_LOG_TRIVIAL(error)<<error.message();});
-                    //try {socket_to_serv.async_connect(iterator->endpoint(),[](boost::system::error_code ec){BOOST_LOG_TRIVIAL(error) << "Async Connect:" << ec.message();});}
-                    //catch(const boost::system::system_error& e){BOOST_LOG_TRIVIAL(error) << "Async Connect:" << e.what(); con_flag=1;};
 
                     std::string answer; answer.resize(10);
                     answer[0]=(0x05);
@@ -214,12 +199,8 @@ int main(int argc,char* argv[]){
                             BOOST_LOG_TRIVIAL(error) << "Failed to write answer to request:" << e.what();
                         co_return;
                     }
-                    //one shared for both
                     std::shared_ptr<boost::beast::tcp_stream> stream_=std::make_shared<boost::beast::tcp_stream>(std::move(stream)),
                                                               socket_to_serv_=std::make_shared<boost::beast::tcp_stream>(std::move(socket_to_serv));
-                    /* TODO: change exception handling:
-                     * Exception end of file
-                     */
 
                     co_spawn(ctx,[stream_,socket_to_serv_,buf_size]() -> boost::asio::awaitable<void> {
                         std::string i_b; i_b.resize(buf_size); int n;
@@ -252,8 +233,8 @@ int main(int argc,char* argv[]){
                             k = co_await socket_to_serv_->async_read_some(boost::asio::buffer(o_b), boost::asio::use_awaitable);
                         }
                         catch(const boost::system::system_error& e){
-                            if(e.code()!=boost::asio::error::operation_aborted&&
-                                (e.code()!=boost::asio::error::eof|| k))
+                            if(e.code()!=boost::asio::error::operation_aborted||
+                                (e.code()!=boost::asio::error::eof))
                                 BOOST_LOG_TRIVIAL(error) << "Failed to read server to client: " << e.what();
                             co_return;
                         }
@@ -262,8 +243,8 @@ int main(int argc,char* argv[]){
                                                      boost::asio::use_awaitable);
                         }
                         catch(const boost::system::system_error& e){
-                            if(e.code()!=boost::asio::error::operation_aborted&&
-                                (e.code()!=boost::asio::error::eof|| k))
+                            if(e.code()!=boost::asio::error::operation_aborted||
+                                (e.code()!=boost::asio::error::eof))
                                 BOOST_LOG_TRIVIAL(error) << "Failed to write server to client: " << e.what();
                             co_return;
                         }
@@ -272,7 +253,7 @@ int main(int argc,char* argv[]){
             }
         },boost::asio::detached);
         std::vector<std::thread> workers;
-        size_t extra_workers = std::thread::hardware_concurrency()-1;
+        size_t extra_workers = thr_num;
         workers.reserve(extra_workers);
         auto ase = at_scope_exit([&]() noexcept {
             for(auto& t:workers)

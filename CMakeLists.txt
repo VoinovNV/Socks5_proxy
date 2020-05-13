@@ -1,16 +1,17 @@
-cmake_minimum_required(VERSION 3.12 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.16)
 
-project(socks_proxy LANGUAGES CXX)
+project(socks5_proxy
+    VERSION 0.0.0
+    LANGUAGES CXX
+)
 
-add_executable(${PROJECT_NAME} main.cpp)
-target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
-set_target_properties(${PROJECT_NAME} PROPERTIES CXX_EXTENSIONS OFF)
+find_package(PkgConfig REQUIRED)
+# ASIO itself is a header-only library, so it has no corresponding
+# component, but depends on non-header-only libraries chrono, system and thread.
+# use_awaitable_t::as_default_on is in 1.72, but buggy, fix in 1.73.
+find_package(Boost 1.71.0 REQUIRED COMPONENTS
+    chrono container coroutine log system thread)
+#find_package(benchmark REQUIRED)
 
-
-find_package(Boost 1.71.0 REQUIRED COMPONENTS chrono log log_setup system thread)
-target_link_libraries(${PROJECT_NAME} PRIVATE
-    Boost::chrono Boost::log Boost::system Boost::thread)
-get_target_property(_boost_log_lib Boost::log IMPORTED_LOCATION)
-if(_boost_log_lib MATCHES "${CMAKE_SHARED_LIBRARY_SUFFIX}$")
-    target_link_libraries(${PROJECT_NAME} PRIVATE Boost::dynamic_linking)
-endif()
+add_subdirectory(socks5_server)
+add_subdirectory(socks5_client)
