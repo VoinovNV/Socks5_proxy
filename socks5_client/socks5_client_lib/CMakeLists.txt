@@ -15,8 +15,6 @@ add_library(${PROJECT_NAME}
 
 add_library(${NAMESPACE}::${COMPONENT} ALIAS ${PROJECT_NAME})
 target_include_directories(${PROJECT_NAME} PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>")
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
-find_package(LibUV REQUIRED)
-if (LIBUV_FOUND)
-    include_directories(SYSTEM ${LIBUV_INCLUDE_DIRS})
-endif (LIBUV_FOUND)
+find_package(PkgConfig REQUIRED)
+Pkg_check_modules(uv REQUIRED IMPORTED_TARGET libuv)
+target_link_libraries(${PROJECT_NAME} PRIVATE PkgConfig::uv)
