@@ -1,22 +1,24 @@
 #ifndef CLIENT_UV_HPP
 #define CLIENT_UV_HPP
 #include <uv.h>
-
 #include <string>
-#define DEST_PORT 8000
-#define DEST_ADDR "localhost"
-#define SHORT_REQUEST char p[2]={'\1','\1'};
-#define SHORT_LEN 2
-/*
-#define LONG_REQUEST ...
-#define LONG LEN ...
-*/
+namespace Proxy {
+
+static char dest_adress[255];
+static short dest_port;
+static short dest_address_len;
+static char proxy_adress[255];
+static short proxy_port;
+static short proxy_address_len;
+static char request[500];
+static short request_len;
+
 class Client_uv
 {
     uv_loop_t *loop;
-    uint16_t port;
-    uv_tcp_t server;
-    std::string address;
+    //uint16_t port;
+   // uv_tcp_t server;
+    //std::string address;
     struct sockaddr_in addr;
     static void on_connection(uv_connect_t* con_,int status);
     static void on_close(uv_handle_t* handle);
@@ -30,13 +32,11 @@ class Client_uv
 
 
 public:
-    Client_uv(uint16_t port_,
-              std::string address_);
+    Client_uv(bool flag);
     ~Client_uv();
-    void Start(uint16_t dest_port_,
-               std::string dest_address_);
+    void Start();
 
 
 };
-
+}
 #endif // CLIENT_UV_HPP
