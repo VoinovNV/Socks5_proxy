@@ -156,7 +156,7 @@ int main(int argc,char* argv[]){
                             BOOST_LOG_TRIVIAL(error) << "Failed to read request: " << e.what();
                         co_return;
                     }
-                    if(in_buf[0]!=0x05||in_buf[1]!=0x01||in_buf[2]!=0x00) {BOOST_LOG_TRIVIAL(error) << "Unsupported request: "; co_return;}
+                    if(in_buf[0]!=0x05||in_buf[1]!=0x01||in_buf[2]!=0x00) {BOOST_LOG_TRIVIAL(error) << "Unsupported request"; co_return;}
                     int a;
                     int b=0;
                     switch(in_buf[3]){
@@ -171,11 +171,11 @@ int main(int argc,char* argv[]){
                     boost::asio::ip::tcp::socket socket_to_serv{make_strand(ctx)};
                     boost::asio::ip::tcp::resolver res(ctx);
                     boost::asio::ip::tcp::resolver::query Q(addr_serv,port_serv_);
+                    BOOST_LOG_TRIVIAL(info)<<"Try connect to: " << addr_serv;
                     try{
-
                         boost::asio::ip::tcp::resolver::iterator iterator=res.resolve(Q);
                         socket_to_serv.async_connect(iterator->endpoint(),[](const boost::system::error_code& error){if (error) BOOST_LOG_TRIVIAL(error)<<"Connected"<<error.message();});
-
+                        BOOST_LOG_TRIVIAL(info) << "Connected:";
                     }
                     catch(const boost::system::system_error& e){
                         BOOST_LOG_TRIVIAL(error) << "Connect:" << e.what(); con_flag=0x01;
@@ -203,7 +203,8 @@ int main(int argc,char* argv[]){
                                                               socket_to_serv_=std::make_shared<boost::beast::tcp_stream>(std::move(socket_to_serv));
 
                     co_spawn(ctx,[stream_,socket_to_serv_,buf_size]() -> boost::asio::awaitable<void> {
-                        std::string i_b; i_b.resize(buf_size); int n;
+                        std::string i_b; i_b.resize(buf_size);
+                        int n;
                         for(;;){
                             try{
                                 n = co_await stream_->async_read_some(boost::asio::buffer(i_b), boost::asio::use_awaitable);
