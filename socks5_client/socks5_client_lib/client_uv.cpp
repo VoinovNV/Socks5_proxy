@@ -21,6 +21,7 @@ Client_uv::Client_uv(bool flag)
     loop = uv_default_loop();
     uv_loop_init(loop);
 
+
 }
 Client_uv::~Client_uv(){
 
@@ -127,7 +128,6 @@ void Client_uv::on_connection(uv_connect_t* con_, int status){
 
 }
 void Client_uv::Start(){
-
     uv_tcp_t* socket = (uv_tcp_t*)malloc(sizeof(uv_tcp_t));
     uv_tcp_init(loop, socket);
 
@@ -136,7 +136,9 @@ void Client_uv::Start(){
     uv_ip4_addr(Proxy::proxy_adress, Proxy::proxy_port, &dest);
 
     int d =uv_tcp_connect(connect, socket, (const struct sockaddr*)&dest, on_connection);
-    int r = uv_run(loop,UV_RUN_DEFAULT);
-
 }
+int Client_uv::run (){
+    return uv_run(loop,UV_RUN_DEFAULT);
+}
+
 }
