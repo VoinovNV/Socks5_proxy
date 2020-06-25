@@ -16,7 +16,7 @@ static short request_len;
 class Client_uv
 {
     uv_loop_t *loop;
-    //uint16_t port;
+    uint16_t port;
    // uv_tcp_t server;
     //std::string address;
     struct sockaddr_in addr;

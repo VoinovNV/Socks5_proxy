@@ -66,7 +66,32 @@ auto at_scope_exit(F&& f)
     return ase_t{std::forward<F>(f)};
 }
 
-
+auto my_send(boost::asio::io_context& ctx,std::shared_ptr<boost::beast::tcp_stream> dest,std::shared_ptr<boost::beast::tcp_stream> src, std::uint32_t buf_size)
+{co_spawn(ctx,[dest,src,buf_size]() -> boost::asio::awaitable<void> {
+            std::string i_b; i_b.resize(buf_size);
+            int n;
+            for(;;){
+                try{
+                    n = co_await dest->async_read_some(boost::asio::buffer(i_b), boost::asio::use_awaitable);
+                }
+                catch(const boost::system::system_error& e){
+                    if(e.code()!=boost::asio::error::operation_aborted&&
+                        (e.code()!=boost::asio::error::eof|| n))
+                        BOOST_LOG_TRIVIAL(error) << "Failed to read: client to server: " << e.what();
+                    co_return;
+                }
+                try{
+                    n = co_await async_write(*src,boost::asio::buffer(i_b,n),
+                                             boost::asio::use_awaitable);
+                }
+                catch(const boost::system::system_error& e){
+                    if(e.code()!=boost::asio::error::operation_aborted&&
+                        (e.code()!=boost::asio::error::eof|| n))
+                        BOOST_LOG_TRIVIAL(error) << "Failed to write from client to server: " << e.what();
+                    co_return;
+                }
+            }
+        },boost::asio::detached);}
 int main(int argc,char* argv[]){
     try{
         if(argc!=4){
@@ -78,9 +103,17 @@ int main(int argc,char* argv[]){
             std::cerr << "Port must be in [1;65535]\n";
             return 1;
         }
-        long long int buf_size= std::atoll(argv[2]);
-        long long int thr_num= std::atoll(argv[3]);
-        BOOST_LOG_TRIVIAL(info)<<"THREADS:" << std::thread::hardware_concurrency();
+        auto  buf_size= from_chars<std::uint32_t>(argv[2]);
+        if(!port||!*port){
+            std::cerr << "Buf_size error\n";
+            return 1;
+        }
+        auto thr_num= from_chars<std::size_t>(argv[3]);
+        if(!port||!*port){
+            std::cerr << "Thread number error\n";
+            return 1;
+        }
+
         boost::asio::io_context ctx;
         boost::asio::signal_set stop_signals{ctx,SIGINT,SIGTERM};
         stop_signals.async_wait([&](boost::system::error_code ec,int /*signal*/){
@@ -89,6 +122,7 @@ int main(int argc,char* argv[]){
             BOOST_LOG_TRIVIAL(info) << "Terminating in response to signal.";
             ctx.stop();
         });
+
         co_spawn(ctx,[&ctx,port=*port,buf_size]() -> boost::asio::awaitable<void> {
             boost::asio::ip::tcp::acceptor acceptor{ctx};
             boost::asio::ip::tcp::endpoint ep{boost::asio::ip::tcp::v6(),port};
@@ -111,14 +145,13 @@ int main(int argc,char* argv[]){
                       [&ctx,stream=boost::beast::tcp_stream{std::move(socket)},buf_size]
                           () mutable -> boost::asio::awaitable<void> {
 
-                    //constexpr static std::size_t limit = 20 ;
                     std::string in_buf;
                     std::size_t n;
                     in_buf.resize(257);
+                    //Read 2 bytes of handshake
                     try{
-                        n = co_await async_read_until(stream,
-                            boost::asio::dynamic_string_buffer(in_buf),boost::regex("\x05.*\0"),
-                                boost::asio::use_awaitable);
+                        n = co_await async_read(stream, boost::asio::buffer(in_buf),
+                                boost::asio::transfer_exactly(2), boost::asio::use_awaitable);
 
                     }
                     catch(const boost::system::system_error& e){
@@ -127,12 +160,25 @@ int main(int argc,char* argv[]){
                             BOOST_LOG_TRIVIAL(error) << "Failed to read Handshake:" << e.what();
                         co_return;
                     }
-                    if(!in_buf.find('\5')) {BOOST_LOG_TRIVIAL(error) <<"Is not SOCKS 5"; co_return;}
-                    std::string out_buf;
-                    out_buf.push_back(0x05);
-                    out_buf.push_back(0x00);
+
+                    if(in_buf[0]!='\5'){BOOST_LOG_TRIVIAL(error) <<"Is not SOCKS 5"; co_return;}
+                    unsigned i=in_buf[1];
+                    //read all possible auth bytes
                     try{
-                        co_await async_write(stream,boost::asio::buffer(out_buf),
+                        n = co_await async_read(stream, boost::asio::buffer(in_buf),
+                                boost::asio::transfer_exactly(i), boost::asio::use_awaitable);
+
+                    }
+                    catch(const boost::system::system_error& e){
+                        if(e.code()!=boost::asio::error::operation_aborted&&
+                            (e.code()!=boost::asio::error::eof||n))
+                            BOOST_LOG_TRIVIAL(error) << "Failed to read Handshake:" << e.what();
+                        co_return;
+                    }
+                    if(in_buf.size()<i){ BOOST_LOG_TRIVIAL(error) <<"Is not SOCKS 5"; co_return;}
+                    std::byte ch_auth[2]={std::byte{5},std::byte{0}};
+                    try{
+                        co_await async_write(stream,boost::asio::buffer(ch_auth,2),
                                              boost::asio::use_awaitable);
                     }
                     catch(const boost::system::system_error& e){
@@ -142,13 +188,9 @@ int main(int argc,char* argv[]){
                     }
                     in_buf.erase(0,257);
                     in_buf.resize(500);
+                    i=4;
                     try{
-                        n = co_await stream.async_read_some(boost::asio::buffer(in_buf), boost::asio::use_awaitable);
-                        /* TODO:
-                         * n = co_await async_read_until(stream,
-                            boost::asio::dynamic_string_buffer(in_buf),???,
-                            boost::asio::use_awaitable);
-                        */
+                        n = co_await async_read(stream,boost::asio::buffer(in_buf), boost::asio::transfer_exactly(i),boost::asio::use_awaitable);
                     }
                     catch(const boost::system::system_error& e){
                         if(e.code()!=boost::asio::error::operation_aborted&&
@@ -157,15 +199,45 @@ int main(int argc,char* argv[]){
                         co_return;
                     }
                     if(in_buf[0]!=0x05||in_buf[1]!=0x01||in_buf[2]!=0x00) {BOOST_LOG_TRIVIAL(error) << "Unsupported request"; co_return;}
-                    int a;
-                    int b=0;
-                    switch(in_buf[3]){
-                    case 0x01:{a=4;b=8;break;}
-                    case 0x03:{a=5;b=int(in_buf.data()[4]);break;}
-                    case 0x04:{a=4;b=5+16; break;}}
+                    int type_adr=in_buf[3];
+                    switch(type_adr){
+                    case 0x00: {i=6;break;}
+                    case 0x03: {i=1;break;}
+                    default: co_return;
+                    }
+
+                    try{
+                        n = co_await async_read(stream,boost::asio::buffer(in_buf), boost::asio::transfer_exactly(i),boost::asio::use_awaitable);
+                    }
+                    catch(const boost::system::system_error& e){
+                        if(e.code()!=boost::asio::error::operation_aborted&&
+                            (e.code()!=boost::asio::error::eof|| n))
+                            BOOST_LOG_TRIVIAL(error) << "IP4 wrong addr: " << e.what();
+                        co_return;
+                    }
+                    int a,b;
                     std::string addr_serv;
-                    addr_serv=(in_buf.substr(a,b));
-                    std::string port_serv_=std::to_string(ntohs(*(uint16_t*)in_buf.substr(b+a,2).data()));
+                    std::string port_serv_;
+                    if(type_adr==0x00){
+                        a=0;b=4;
+                        addr_serv=(in_buf.substr(a,b));
+                        port_serv_=std::to_string(ntohs(*(uint16_t*)in_buf.substr(b+a,2).data()));
+                    }
+                    else{
+                        a=0;b=in_buf[0];
+                        try{
+                            n = co_await async_read(stream,boost::asio::buffer(in_buf), boost::asio::transfer_exactly(in_buf[0]+2),boost::asio::use_awaitable);
+                        }
+                        catch(const boost::system::system_error& e){ if(e.code()!=boost::asio::error::operation_aborted&&
+                                (e.code()!=boost::asio::error::eof|| n))
+                                BOOST_LOG_TRIVIAL(error) << "DNS: wrong addr " << e.what();
+                            co_return;
+                        }
+
+                        addr_serv=(in_buf.substr(a,b));
+                        port_serv_=std::to_string(ntohs(*(uint16_t*)in_buf.substr(b+a,2).data()));
+                    }
+
                     b=0;
                     char con_flag=0x00;
                     boost::asio::ip::tcp::socket socket_to_serv{make_strand(ctx)};
@@ -203,7 +275,7 @@ int main(int argc,char* argv[]){
                                                               socket_to_serv_=std::make_shared<boost::beast::tcp_stream>(std::move(socket_to_serv));
 
                     co_spawn(ctx,[stream_,socket_to_serv_,buf_size]() -> boost::asio::awaitable<void> {
-                        std::string i_b; i_b.resize(buf_size);
+                        std::string i_b; i_b.resize(buf_size.value());
                         int n;
                         for(;;){
                             try{
@@ -227,34 +299,13 @@ int main(int argc,char* argv[]){
                             }
                         }
                     },boost::asio::detached);
-                    for(;;){
-                        std::string o_b; int k;
-                        o_b.resize(buf_size);
-                        try{
-                            k = co_await socket_to_serv_->async_read_some(boost::asio::buffer(o_b), boost::asio::use_awaitable);
-                        }
-                        catch(const boost::system::system_error& e){
-                            if(e.code()!=boost::asio::error::operation_aborted||
-                                (e.code()!=boost::asio::error::eof))
-                                BOOST_LOG_TRIVIAL(error) << "Failed to read server to client: " << e.what();
-                            co_return;
-                        }
-                        try{
-                            k = co_await async_write(*stream_,boost::asio::buffer(o_b,k),
-                                                     boost::asio::use_awaitable);
-                        }
-                        catch(const boost::system::system_error& e){
-                            if(e.code()!=boost::asio::error::operation_aborted||
-                                (e.code()!=boost::asio::error::eof))
-                                BOOST_LOG_TRIVIAL(error) << "Failed to write server to client: " << e.what();
-                            co_return;
-                        }
-                    }
+                    my_send(ctx,socket_to_serv_,stream_,buf_size.value());
+                    my_send(ctx,stream_,socket_to_serv_,buf_size.value());
                 },boost::asio::detached);
             }
         },boost::asio::detached);
         std::vector<std::thread> workers;
-        size_t extra_workers = thr_num;
+        size_t extra_workers = thr_num.value();
         workers.reserve(extra_workers);
         auto ase = at_scope_exit([&]() noexcept {
             for(auto& t:workers)
