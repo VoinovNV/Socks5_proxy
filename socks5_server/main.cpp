@@ -103,7 +103,7 @@ int main(int argc,char* argv[]){
             std::cerr << "Port must be in [1;65535]\n";
             return 1;
         }
-        auto  buf_size= from_chars<std::uint32_t>(argv[2]);
+        auto buf_size= from_chars<std::uint32_t>(argv[2]);
         if(!port||!*port){
             std::cerr << "Buf_size error\n";
             return 1;

@@ -4,22 +4,22 @@
 #include <string>
 namespace Proxy {
 
-static char dest_adress[255];
-static short dest_port;
-static short dest_address_len;
-static char proxy_adress[255];
-static short proxy_port;
-static short proxy_address_len;
-static char request[500];
-static short request_len;
+struct req_info{
+    char proxy_adress[255];
+    short proxy_address_len;
+    short proxy_port;
 
+    char dest_adress[255];
+    short dest_address_len;
+    short dest_port;
+
+    char request[500];
+    short request_len;
+};
+void req_info_set_default(req_info* req);
 class Client_uv
 {
     uv_loop_t *loop;
-    uint16_t port;
-   // uv_tcp_t server;
-    //std::string address;
-    struct sockaddr_in addr;
     static void on_connection(uv_connect_t* con_,int status);
     static void on_close(uv_handle_t* handle);
     static void on_read(uv_stream_t* handle, ssize_t nread, const uv_buf_t* buf);
@@ -32,9 +32,9 @@ class Client_uv
 
 
 public:
-    Client_uv(bool flag);
+    Client_uv();
     ~Client_uv();
-    void Start();
+    void Start(req_info* req);
     int run();
 
 
