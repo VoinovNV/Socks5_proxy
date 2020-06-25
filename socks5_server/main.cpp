@@ -245,14 +245,12 @@ int main(int argc,char* argv[]){
                     boost::asio::ip::tcp::resolver::query Q(addr_serv,port_serv_);
                     BOOST_LOG_TRIVIAL(info)<<"Try connect to: " << addr_serv;
                     try{
-                        boost::asio::ip::tcp::resolver::iterator iterator=res.resolve(Q);
+                        boost::asio::ip::tcp::resolver::iterator iterator=co_await res.async_resolve(Q,boost::asio::use_awaitable);//res.resolve(Q);
                         socket_to_serv.async_connect(iterator->endpoint(),[](const boost::system::error_code& error){if (error) BOOST_LOG_TRIVIAL(error)<<"Connected"<<error.message();});
-                        BOOST_LOG_TRIVIAL(info) << "Connected:";
                     }
                     catch(const boost::system::system_error& e){
                         BOOST_LOG_TRIVIAL(error) << "Connect:" << e.what(); con_flag=0x01;
                     };
-
                     std::string answer; answer.resize(10);
                     answer[0]=(0x05);
                     answer[1]=(con_flag);
@@ -262,6 +260,7 @@ int main(int argc,char* argv[]){
                     uint16_t an_pt=htons(socket_to_serv.local_endpoint().port());
                     std::memcpy(&answer[4],&an_ad,4);
                     std::memcpy(&answer[8],&an_pt,2);
+
                     try{
                         co_await async_write(stream,boost::asio::buffer(answer),
                                              boost::asio::use_awaitable);
@@ -274,31 +273,6 @@ int main(int argc,char* argv[]){
                     std::shared_ptr<boost::beast::tcp_stream> stream_=std::make_shared<boost::beast::tcp_stream>(std::move(stream)),
                                                               socket_to_serv_=std::make_shared<boost::beast::tcp_stream>(std::move(socket_to_serv));
 
-                    co_spawn(ctx,[stream_,socket_to_serv_,buf_size]() -> boost::asio::awaitable<void> {
-                        std::string i_b; i_b.resize(buf_size.value());
-                        int n;
-                        for(;;){
-                            try{
-                                n = co_await stream_->async_read_some(boost::asio::buffer(i_b), boost::asio::use_awaitable);
-                            }
-                            catch(const boost::system::system_error& e){
-                                if(e.code()!=boost::asio::error::operation_aborted&&
-                                    (e.code()!=boost::asio::error::eof|| n))
-                                    BOOST_LOG_TRIVIAL(error) << "Failed to read: client to server: " << e.what();
-                                co_return;
-                            }
-                            try{
-                                n = co_await async_write(*socket_to_serv_,boost::asio::buffer(i_b,n),
-                                                         boost::asio::use_awaitable);
-                            }
-                            catch(const boost::system::system_error& e){
-                                if(e.code()!=boost::asio::error::operation_aborted&&
-                                    (e.code()!=boost::asio::error::eof|| n))
-                                    BOOST_LOG_TRIVIAL(error) << "Failed to write from client to server: " << e.what();
-                                co_return;
-                            }
-                        }
-                    },boost::asio::detached);
                     my_send(ctx,socket_to_serv_,stream_,buf_size.value());
                     my_send(ctx,stream_,socket_to_serv_,buf_size.value());
                 },boost::asio::detached);
