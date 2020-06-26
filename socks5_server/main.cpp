@@ -66,8 +66,8 @@ auto at_scope_exit(F&& f)
     return ase_t{std::forward<F>(f)};
 }
 
-auto my_send(boost::asio::io_context& ctx,std::shared_ptr<boost::beast::tcp_stream> dest,std::shared_ptr<boost::beast::tcp_stream> src, std::uint32_t buf_size)
-{co_spawn(ctx,[dest,src,buf_size]() -> boost::asio::awaitable<void> {
+auto my_send(boost::asio::io_context& ctx,std::shared_ptr<boost::beast::tcp_stream> dest,std::shared_ptr<boost::beast::tcp_stream> src, std::uint32_t buf_size,std::string_view name)
+{co_spawn(ctx,[name,dest,src,buf_size]() -> boost::asio::awaitable<void> {
             std::string i_b; i_b.resize(buf_size);
             int n;
             for(;;){
@@ -77,7 +77,7 @@ auto my_send(boost::asio::io_context& ctx,std::shared_ptr<boost::beast::tcp_stre
                 catch(const boost::system::system_error& e){
                     if(e.code()!=boost::asio::error::operation_aborted&&
                         (e.code()!=boost::asio::error::eof|| n))
-                        BOOST_LOG_TRIVIAL(error) << "Failed to read: client to server: " << e.what();
+                        BOOST_LOG_TRIVIAL(error) << "Failed to read: " <<name<< e.what();
                     co_return;
                 }
                 try{
@@ -87,7 +87,7 @@ auto my_send(boost::asio::io_context& ctx,std::shared_ptr<boost::beast::tcp_stre
                 catch(const boost::system::system_error& e){
                     if(e.code()!=boost::asio::error::operation_aborted&&
                         (e.code()!=boost::asio::error::eof|| n))
-                        BOOST_LOG_TRIVIAL(error) << "Failed to write from client to server: " << e.what();
+                        BOOST_LOG_TRIVIAL(error) << "Failed to write: "<<name << e.what();
                     co_return;
                 }
             }
@@ -201,7 +201,7 @@ int main(int argc,char* argv[]){
                     if(in_buf[0]!=0x05||in_buf[1]!=0x01||in_buf[2]!=0x00) {BOOST_LOG_TRIVIAL(error) << "Unsupported request"; co_return;}
                     int type_adr=in_buf[3];
                     switch(type_adr){
-                    case 0x00: {i=6;break;}
+                    case 0x01: {i=6;break;}
                     case 0x03: {i=1;break;}
                     default: co_return;
                     }
@@ -218,10 +218,16 @@ int main(int argc,char* argv[]){
                     int a,b;
                     std::string addr_serv;
                     std::string port_serv_;
-                    if(type_adr==0x00){
+                    if(type_adr==0x01){
                         a=0;b=4;
-                        addr_serv=(in_buf.substr(a,b));
+                        struct in_addr addr;
+                        addr.s_addr = *(std::uint32_t*)in_buf.data();
+                        addr_serv=inet_ntoa(addr);
+                        addr_serv.push_back('\0');
+
                         port_serv_=std::to_string(ntohs(*(uint16_t*)in_buf.substr(b+a,2).data()));
+                        //port_serv_=in_buf.substr(b+a,2);
+
                     }
                     else{
                         a=0;b=in_buf[0];
@@ -236,6 +242,7 @@ int main(int argc,char* argv[]){
 
                         addr_serv=(in_buf.substr(a,b));
                         port_serv_=std::to_string(ntohs(*(uint16_t*)in_buf.substr(b+a,2).data()));
+                        BOOST_LOG_TRIVIAL(error)<<int(in_buf.substr(b+a,2)[0])<<' '<<int(in_buf.substr(b+a,2)[1])<<"as";
                     }
 
                     b=0;
@@ -243,13 +250,16 @@ int main(int argc,char* argv[]){
                     boost::asio::ip::tcp::socket socket_to_serv{make_strand(ctx)};
                     boost::asio::ip::tcp::resolver res(ctx);
                     boost::asio::ip::tcp::resolver::query Q(addr_serv,port_serv_);
-                    BOOST_LOG_TRIVIAL(info)<<"Try connect to: " << addr_serv;
+                    BOOST_LOG_TRIVIAL(info)<<"Try connect to: " << addr_serv<<' '<<port_serv_;
+
                     try{
                         boost::asio::ip::tcp::resolver::iterator iterator=co_await res.async_resolve(Q,boost::asio::use_awaitable);//res.resolve(Q);
-                        socket_to_serv.async_connect(iterator->endpoint(),[](const boost::system::error_code& error){if (error) BOOST_LOG_TRIVIAL(error)<<"Connected"<<error.message();});
+                        co_await socket_to_serv.async_connect(iterator->endpoint(),boost::asio::use_awaitable/*[](const boost::system::error_code& error){
+                            if (error)BOOST_LOG_TRIVIAL(error)<<"Connection: "<<error.message();}*/);
                     }
                     catch(const boost::system::system_error& e){
-                        BOOST_LOG_TRIVIAL(error) << "Connect:" << e.what(); con_flag=0x01;
+                        BOOST_LOG_TRIVIAL(error) << "Connection: " << e.what(); con_flag=0x01;
+                        co_return;
                     };
                     std::string answer; answer.resize(10);
                     answer[0]=(0x05);
@@ -273,8 +283,8 @@ int main(int argc,char* argv[]){
                     std::shared_ptr<boost::beast::tcp_stream> stream_=std::make_shared<boost::beast::tcp_stream>(std::move(stream)),
                                                               socket_to_serv_=std::make_shared<boost::beast::tcp_stream>(std::move(socket_to_serv));
 
-                    my_send(ctx,socket_to_serv_,stream_,buf_size.value());
-                    my_send(ctx,stream_,socket_to_serv_,buf_size.value());
+                    my_send(ctx,socket_to_serv_,stream_,buf_size.value(),"from server");
+                    my_send(ctx,stream_,socket_to_serv_,buf_size.value(),"from client");
                 },boost::asio::detached);
             }
         },boost::asio::detached);
