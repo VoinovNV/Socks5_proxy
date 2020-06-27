@@ -165,6 +165,7 @@ void Client_uv::Start(req_info* req_i){
 }
 int Client_uv::run (){
     return uv_run(loop,UV_RUN_DEFAULT);
+
 }
 
 }
