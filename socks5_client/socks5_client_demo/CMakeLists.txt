@@ -16,6 +16,9 @@ target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
 find_package(socks5_client_lib 0.0.0 REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE socks5_client::lib
     benchmark::benchmark_main Boost::chrono Boost::log Boost::system Boost::thread)
-
+get_target_property(_boost_log_lib Boost::log IMPORTED_LOCATION)
+if(_boost_log_lib MATCHES "${CMAKE_SHARED_LIBRARY_SUFFIX}$")
+    target_link_libraries(${PROJECT_NAME} PRIVATE Boost::dynamic_linking)
+endif()
 
 
