@@ -91,8 +91,6 @@ auto my_send(boost::asio::io_context& ctx,std::shared_ptr<boost::beast::tcp_stre
                         BOOST_LOG_TRIVIAL(error) << "Failed to write: "<<name << e.what();
                     co_return;
                 }
-                BOOST_LOG_TRIVIAL(info)<<name<<": "<<(int)i_b[0]<<' '<<n;
-                BOOST_LOG_TRIVIAL(info)<<i_b;
             }
         },boost::asio::detached);}
 int main(int argc,char* argv[]){
@@ -245,7 +243,6 @@ int main(int argc,char* argv[]){
 
                         addr_serv=(in_buf.substr(a,b));
                         port_serv_=std::to_string(ntohs(*(uint16_t*)in_buf.substr(b+a,2).data()));
-                        BOOST_LOG_TRIVIAL(error)<<int(in_buf.substr(b+a,2)[0])<<' '<<int(in_buf.substr(b+a,2)[1])<<"as";
                     }
 
                     b=0;
@@ -253,12 +250,10 @@ int main(int argc,char* argv[]){
                     boost::asio::ip::tcp::socket socket_to_serv{make_strand(ctx)};
                     boost::asio::ip::tcp::resolver res(ctx);
                     boost::asio::ip::tcp::resolver::query Q(addr_serv,port_serv_);
-                    BOOST_LOG_TRIVIAL(info)<<"Try connect to: " << addr_serv<<' '<<port_serv_;
 
                     try{
                         boost::asio::ip::tcp::resolver::iterator iterator=co_await res.async_resolve(Q,boost::asio::use_awaitable);//res.resolve(Q);
-                        co_await socket_to_serv.async_connect(iterator->endpoint(),boost::asio::use_awaitable/*[](const boost::system::error_code& error){
-                            if (error)BOOST_LOG_TRIVIAL(error)<<"Connection: "<<error.message();}*/);
+                        co_await socket_to_serv.async_connect(iterator->endpoint(),boost::asio::use_awaitable);
                     }
                     catch(const boost::system::system_error& e){
                         BOOST_LOG_TRIVIAL(error) << "Connection: " << e.what(); con_flag=0x01;

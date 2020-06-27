@@ -15,11 +15,17 @@ struct req_info{
 
     char request[500];
     short request_len;
+    short answer_len;
+
+    uv_connect_t* _con_;
+    uv_write_t* _wr_;
+
 };
 void req_info_set_default(req_info* req);
 class Client_uv
 {
     uv_loop_t *loop;
+    uv_connect_t* con_t;
     static void on_connection(uv_connect_t* con_,int status);
     static void on_close(uv_handle_t* handle);
     static void on_read(uv_stream_t* handle, ssize_t nread, const uv_buf_t* buf);
