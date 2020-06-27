@@ -69,8 +69,9 @@ auto at_scope_exit(F&& f)
 auto my_send(boost::asio::io_context& ctx,std::shared_ptr<boost::beast::tcp_stream> dest,std::shared_ptr<boost::beast::tcp_stream> src, std::uint32_t buf_size,std::string_view name)
 {co_spawn(ctx,[name,dest,src,buf_size]() -> boost::asio::awaitable<void> {
             std::string i_b; i_b.resize(buf_size);
-            int n;
+            int n=0;
             for(;;){
+
                 try{
                     n = co_await dest->async_read_some(boost::asio::buffer(i_b), boost::asio::use_awaitable);
                 }
@@ -90,6 +91,8 @@ auto my_send(boost::asio::io_context& ctx,std::shared_ptr<boost::beast::tcp_stre
                         BOOST_LOG_TRIVIAL(error) << "Failed to write: "<<name << e.what();
                     co_return;
                 }
+                BOOST_LOG_TRIVIAL(info)<<name<<": "<<(int)i_b[0]<<' '<<n;
+                BOOST_LOG_TRIVIAL(info)<<i_b;
             }
         },boost::asio::detached);}
 int main(int argc,char* argv[]){
@@ -283,8 +286,9 @@ int main(int argc,char* argv[]){
                     std::shared_ptr<boost::beast::tcp_stream> stream_=std::make_shared<boost::beast::tcp_stream>(std::move(stream)),
                                                               socket_to_serv_=std::make_shared<boost::beast::tcp_stream>(std::move(socket_to_serv));
 
-                    my_send(ctx,socket_to_serv_,stream_,buf_size.value(),"from server");
                     my_send(ctx,stream_,socket_to_serv_,buf_size.value(),"from client");
+                    my_send(ctx,socket_to_serv_,stream_,buf_size.value(),"from server");
+
                 },boost::asio::detached);
             }
         },boost::asio::detached);

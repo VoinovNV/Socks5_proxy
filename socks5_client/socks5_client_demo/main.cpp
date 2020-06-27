@@ -19,7 +19,7 @@ int main(){
     Proxy::Client_uv a;
     Proxy::req_info req;
     Proxy::req_info_set_default(&req);
-    for(int i=0;i<25;i++) a.Start(&req);
+    for(int i=0;i<5;i++) a.Start(&req);
     a.run();
     return 0;
 }
